@@ -1,4 +1,4 @@
-name: Build and deploy Next.js app to Azure Web App - AkomsNextJS
+name: Build and deploy Node.js app to Azure Web App - AkomsNextJS
 
 on:
   push:
@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
@@ -16,38 +18,42 @@ jobs:
       - name: Set up Node.js version
         uses: actions/setup-node@v3
         with:
-          node-version: "18.x"
+          node-version: "20.x"
 
       - name: Install dependencies
-        run: npm ci
-
-      - name: Build Next.js app
-        run: npm run build
-
-      - name: Prepare artifact for deployment
         run: |
-          mkdir deploy
-          cp -r .next deploy/.next
-          cp -r public deploy/public
-          cp package.json deploy/
-          cp package-lock.json deploy/
-          cp -r node_modules deploy/node_modules
+          npm ci
+
+      - name: Build
+        run: |
+          npm run build --if-present
+
+      - name: Prepare artifact (only build output)
+        run: |
+          mkdir -p deploy_package
+          if [ -d .next ]; then cp -r .next deploy_package/; fi
+          if [ -d public ]; then cp -r public deploy_package/; fi
+          cp package.json deploy_package/ || true
+          cp next.config.js deploy_package/ || true
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
-          name: nextjs-app
-          path: deploy
+          name: node-app
+          path: deploy_package/
 
   deploy:
     runs-on: ubuntu-latest
     needs: build
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
-          name: nextjs-app
+          name: node-app
 
       - name: Login to Azure
         uses: azure/login@v2
@@ -56,9 +62,10 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_FDE1547A0CA9429889FEDD0631F48B32 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_DBE68812ABAF4D0EB1B7FE37306A9D02 }}
 
-      - name: Deploy to Azure Web App
+      - name: "Deploy to Azure Web App"
+        id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
           app-name: "AkomsNextJS"
           slot-name: "Production"
-          package: .
+          package: deploy_package
